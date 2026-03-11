@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Gantt Chart</title>
+    <!-- Frappe Gantt CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.css">
+    <style>
+        /* --- Base Styles --- */
+        body {
+            background-color: #0f111a; /* 深いダークブルー */
+            color: #e0e6ed;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            font-weight: 300;
+            letter-spacing: 2px;
+            margin-bottom: 30px;
+            background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #161b22;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border: 1px solid #30363d;
+        }
+
+        /* --- Gantt Customization for Dark Mode --- */
+        .gantt .grid-header {
+            fill: #161b22;
+            stroke: #30363d;
+        }
+        .gantt .grid-row {
+            fill: #161b22;
+            stroke: #30363d;
+        }
+        .gantt .grid-row:nth-child(even) {
+            fill: #0d1117;
+        }
+        .gantt .tick {
+            stroke: #30363d;
+        }
+        .gantt text {
+            fill: #8b949e;
+        }
+        .gantt .today-highlight {
+            fill: rgba(56, 139, 253, 0.1);
+        }
+
+        /* --- Task Bars Styles (Neon Colors) --- */
+        /* 完了済み */
+        .gantt .bar-completed .bar {
+            fill: #2ea043; /* Green */
+        }
+        .gantt .bar-completed .bar-progress {
+            fill: #3fb950;
+        }
+        
+        /* デザイン */
+        .gantt .bar-design .bar {
+            fill: #a371f7; /* Purple */
+        }
+        .gantt .bar-design .bar-progress {
+            fill: #d2a8ff;
+        }
+
+        /* 開発 */
+        .gantt .bar-dev .bar {
+            fill: #1f6feb; /* Blue */
+        }
+        .gantt .bar-dev .bar-progress {
+            fill: #58a6ff;
+        }
+
+        /* 共通バー設定 */
+        .gantt .bar {
+            stroke: none;
+            rx: 4px;
+            ry: 4px;
+            filter: drop-shadow(0 0 5px rgba(0,0,0,0.3));
+        }
+        
+        /* ラベル */
+        .gantt .bar-label {
+            fill: #ffffff;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        /* ポップアップ詳細 */
+        .gantt-container .popup-wrapper {
+            background: #1f2937;
+            color: #fff;
+            border: 1px solid #374151;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            border-radius: 8px;
+        }
+        .gantt-container .popup-wrapper .title {
+            border-bottom: 1px solid #374151;
+        }
+
+        /* --- Controls --- */
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn:hover, .btn.active {
+            background: #1f6feb;
+            color: white;
+            border-color: #1f6feb;
+            box-shadow: 0 0 10px rgba(31, 111, 235, 0.4);
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>PROJECT TIMELINE</h1>
+
+    <div class="controls">
+        <button class="btn" onclick="changeView('Day')">Day</button>
+        <button class="btn active" onclick="changeView('Week')">Week</button>
+        <button class="btn" onclick="changeView('Month')">Month</button>
+    </div>
+
+    <div class="container">
+        <!-- Gantt Chart Container -->
+        <svg id="gantt"></svg>
+    </div>
+
+    <!-- Frappe Gantt JS -->
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
+
+    <script>
+        let gantt;
+
+        // データの取得と描画
+        async function loadGantt() {
+            try {
+                const response = await fetch('/api/tasks');
+                const tasks = await response.json();
+
+                gantt = new Gantt("#gantt", tasks, {
+                    header_height: 50,
+                    column_width: 30,
+                    step: 24,
+                    view_modes: ['Quarter Day', 'Half Day', 'Day', 'Week', 'Month'],
+                    bar_height: 30,
+                    bar_corner_radius: 4,
+                    arrow_curve: 5,
+                    padding: 18,
+                    view_mode: 'Week',
+                    date_format: 'YYYY-MM-DD',
+                    language: 'en', // 'ja'も可能ですがフォントによっては崩れる場合あり
+                    
+                    // --- イベントハンドラ (編集機能) ---
+                    
+                    // 日付変更（ドラッグ＆ドロップ）
+                    on_date_change: function(task, start, end) {
+                        console.log("Date changed:", task.name, start, end);
+                        updateTaskBackend(task.id, start, end, task.progress);
+                    },
+                    
+                    // 進捗変更
+                    on_progress_change: function(task, progress) {
+                        console.log("Progress changed:", task.name, progress);
+                        updateTaskBackend(task.id, task.start, task.end, progress);
+                    },
+                    
+                    // クリック時
+                    on_click: function (task) {
+                        console.log("Clicked:", task);
+                    },
+                    
+                    // 詳細表示
+                    on_view_change: function(mode) {
+                        updateActiveButton(mode);
+                    }
+                });
+
+            } catch (error) {
+                console.error("Error loading tasks:", error);
+            }
+        }
+
+        // Pythonバックエンドへ更新データを送信
+        async function updateTaskBackend(id, start, end, progress) {
+            // 日付オブジェクトをYYYY-MM-DD形式の文字列に変換
+            const formatDate = (date) => date.toISOString().split('T')[0];
+
+            const payload = {
+                id: id,
+                start: formatDate(start),
+                end: formatDate(end),
+                progress: progress
+            };
+
+            await fetch('/api/update_task', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+        }
+
+        // 表示モード切替
+        function changeView(mode) {
+            gantt.change_view_mode(mode);
+            updateActiveButton(mode);
+        }
+
+        function updateActiveButton(mode) {
+            document.querySelectorAll('.btn').forEach(btn => {
+                btn.classList.remove('active');
+                if(btn.textContent === mode) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        // 初期ロード
+        loadGantt();
+
+    </script>
+</body>
+</html>
