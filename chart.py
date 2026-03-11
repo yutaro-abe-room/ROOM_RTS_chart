@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import pandas as pd
 from datetime import datetime, timedelta
 
 # ページ設定
@@ -8,15 +9,20 @@ st.set_page_config(layout="wide", page_title="ROOM×RTS イベントプラン")
 # ==========================================
 # データ管理 (Session State)
 # ==========================================
-# 初期データをStreamlitのセッション状態で管理
 if 'tasks' not in st.session_state:
-    st.session_state.tasks = [
+    # 初期データ
+    initial_data = [
         {"id": 1, "assignee": "佐藤", "name": "企画立案", "start": "2026-03-09", "end": "2026-03-13", "progress": 100},
         {"id": 2, "assignee": "鈴木", "name": "会場選定・予約", "start": "2026-03-11", "end": "2026-03-18", "progress": 80},
         {"id": 3, "assignee": "田中", "name": "出演者オファー", "start": "2026-03-13", "end": "2026-03-23", "progress": 40},
         {"id": 4, "assignee": "高橋", "name": "広報・SNS運用", "start": "2026-03-18", "end": "2026-04-02", "progress": 10},
         {"id": 5, "assignee": "伊藤", "name": "当日運営マニュアル作成", "start": "2026-03-28", "end": "2026-04-05", "progress": 0},
     ]
+    # DataFrameに変換し、日付列をdatetime型にする（ここが重要！）
+    df_init = pd.DataFrame(initial_data)
+    df_init['start'] = pd.to_datetime(df_init['start'])
+    df_init['end'] = pd.to_datetime(df_init['end'])
+    st.session_state.tasks = df_init
 
 if 'app_config' not in st.session_state:
     st.session_state.app_config = {
@@ -27,16 +33,28 @@ if 'app_config' not in st.session_state:
 # ==========================================
 # ロジック (日付計算など)
 # ==========================================
-def process_tasks_for_gantt(tasks_data):
+def process_tasks_for_gantt(df):
     base_start_date = datetime(2026, 3, 9)
     base_end_date = datetime(2026, 7, 31)
+    
+    # DataFrameを辞書のリストに変換して処理
+    tasks_data = df.to_dict('records')
     
     processed = []
     for t in tasks_data:
         task = t.copy()
         try:
-            task['start_dt'] = datetime.strptime(task['start'], '%Y-%m-%d')
-            task['end_dt'] = datetime.strptime(task['end'], '%Y-%m-%d')
+            # datetime型の場合はそのまま使用、文字列なら変換
+            if isinstance(task['start'], str):
+                task['start_dt'] = datetime.strptime(task['start'], '%Y-%m-%d')
+            else:
+                task['start_dt'] = task['start']
+                
+            if isinstance(task['end'], str):
+                task['end_dt'] = datetime.strptime(task['end'], '%Y-%m-%d')
+            else:
+                task['end_dt'] = task['end']
+                
             processed.append(task)
         except ValueError:
             continue
@@ -71,10 +89,10 @@ def process_tasks_for_gantt(tasks_data):
 tasks, date_range, total_days = process_tasks_for_gantt(st.session_state.tasks)
 
 # ==========================================
-# HTML生成 (Jinja2テンプレートエンジンの簡易版として文字列置換を使用)
+# HTML生成
 # ==========================================
 
-# 日付ヘッダーのHTML生成
+# 日付ヘッダーHTML
 days_html = ""
 grid_lines_html = ""
 for i, day in enumerate(date_range):
@@ -97,7 +115,7 @@ for i, day in enumerate(date_range):
     left_percent = i * (100 / total_days)
     grid_lines_html += f'<div class="grid-line {day_class}" style="left: {left_percent}%;"></div>'
 
-# タスク行のHTML生成
+# タスク行HTML
 tasks_html = ""
 for task in tasks:
     bar_html = ""
@@ -123,29 +141,7 @@ for task in tasks:
     </div>
     '''
 
-# 編集用テーブル行のHTML生成
-edit_rows_html = ""
-for task in st.session_state.tasks:
-    edit_rows_html += f'''
-    <tr>
-        <input type="hidden" name="id[]" value="{task['id']}">
-        <td><input type="text" name="assignee[]" value="{task['assignee']}" placeholder="名前"></td>
-        <td><input type="text" name="name[]" value="{task['name']}" required></td>
-        <td><input type="date" name="start[]" value="{task['start']}" required></td>
-        <td><input type="date" name="end[]" value="{task['end']}" required></td>
-        <td><input type="number" name="progress[]" value="{task['progress']}" min="0" max="100"></td>
-        <td style="text-align: center;">
-            <button type="button" class="btn btn-delete" onclick="removeRow(this)">削除</button>
-        </td>
-    </tr>
-    '''
-
-# 全体のHTML組み立て
-# 注意: Streamlit上ではフォーム送信(POST)ができないため、JavaScriptで制御する必要がありますが、
-# 簡易的に表示のみを再現し、編集機能はStreamlitネイティブ機能に任せるのが一般的です。
-# 今回は「見た目を合わせる」ことを最優先し、HTML/CSSを埋め込みます。
-# ただし、iframe内での動作になるため、Python側へのデータ保存はこれだけでは機能しません。
-
+# 全体HTML
 full_html = f"""
 <!DOCTYPE html>
 <html lang="ja">
@@ -173,7 +169,7 @@ full_html = f"""
             background-color: var(--bg-color);
             color: var(--text-main);
             margin: 0;
-            padding: 20px;
+            padding: 0; /* Streamlitのコンテナ内に収めるため余白調整 */
         }}
         .header-container {{ margin-bottom: 30px; }}
         h1 {{
@@ -252,17 +248,6 @@ full_html = f"""
         .status-done {{ background-color: var(--color-done); }}
         .status-wip {{ background-color: var(--color-wip); }}
         .status-todo {{ background-color: var(--color-todo); color: #555; }}
-        
-        /* テーブルスタイル */
-        table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
-        th {{ text-align: left; padding: 12px; color: var(--text-sub); font-weight: 600; border-bottom: 2px solid var(--border-color); }}
-        td {{ padding: 10px 12px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }}
-        input[type="text"], input[type="date"], input[type="number"] {{
-            width: 100%; padding: 8px 10px; border: 1px solid #dcdcdc; border-radius: 6px;
-            font-family: inherit; font-size: 0.9rem; box-sizing: border-box;
-        }}
-        .btn {{ padding: 10px 18px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem; }}
-        .btn-delete {{ background-color: #fff0f0; color: var(--color-danger); padding: 6px 12px; font-size: 0.8rem; border: 1px solid #ffcccc; }}
     </style>
 </head>
 <body>
@@ -290,26 +275,21 @@ full_html = f"""
 </html>
 """
 
-# HTMLをStreamlitに埋め込み (高さはコンテンツに合わせて調整)
-components.html(full_html, height=800, scrolling=True)
+# HTML埋め込み
+components.html(full_html, height=600, scrolling=True)
 
 # ==========================================
-# 編集機能 (Streamlitネイティブ)
+# 編集機能
 # ==========================================
-# Flask版のテーブル編集機能はStreamlitのData Editorで代替します
-# これにより、データの保存・編集がPython側で完結し、エラーなく動作します
 st.markdown("---")
 st.subheader("📝 タスク編集")
 
-# 編集用データフレームの作成
-import pandas as pd
-df = pd.DataFrame(st.session_state.tasks)
-
+# データエディタ設定
 edited_df = st.data_editor(
-    df,
+    st.session_state.tasks,
     num_rows="dynamic",
     column_config={
-        "id": None,
+        "id": None, # IDは非表示
         "assignee": st.column_config.TextColumn("担当"),
         "name": st.column_config.TextColumn("タスク名", required=True),
         "start": st.column_config.DateColumn("開始日", required=True, format="YYYY-MM-DD"),
@@ -320,8 +300,12 @@ edited_df = st.data_editor(
     hide_index=True
 )
 
-# データが変更されたらSession Stateを更新してリロード
-if not edited_df.equals(df):
-    # 辞書リスト形式に戻して保存
-    st.session_state.tasks = edited_df.to_dict('records')
+# 変更検知と更新
+if not edited_df.equals(st.session_state.tasks):
+    # 新規行のID補完
+    if len(edited_df) > len(st.session_state.tasks):
+        max_id = st.session_state.tasks['id'].max() if not st.session_state.tasks.empty else 0
+        edited_df['id'] = edited_df['id'].fillna(range(max_id + 1, max_id + 1 + len(edited_df)))
+    
+    st.session_state.tasks = edited_df
     st.rerun()
